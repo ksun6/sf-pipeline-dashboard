@@ -212,8 +212,8 @@ All columns sortable by clicking the header.
 
 **Notes column**
 - No notes → `—`
-- Has notes → 1-line truncated preview + "View note" / "View N notes" button
-- Button opens a modal with each note in its own block (activity type · date · owner · full text pre-wrapped)
+- Has notes → show first ~200 characters of the note inline, truncated with ellipsis, in a muted smaller font
+- Below the preview, show a "View full notes" button that opens a modal with the complete text
 - Modal dismisses on ×, backdrop click, or Escape key
 
 **SF Link column**
