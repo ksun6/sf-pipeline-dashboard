@@ -1,202 +1,244 @@
 ---
 name: sf-pipeline-dashboard
 description: Pull Salesforce opportunities and call reports matching user-specified keywords, then generate an interactive HTML dashboard with notes and SF links. Use when asked to build a pipeline dashboard or search Salesforce for activity around specific topics.
+user-invocable: true
+allowed-tools:
+  - Bash
+  - Write
+  - mcp__salesforce-dx__get_username
+  - mcp__salesforce-dx__run_soql_query
 ---
 
 # Salesforce Pipeline Dashboard Generator
 
 You are generating an interactive HTML dashboard from live Salesforce data.
 
+## When to Use
+
+Use this skill when the user:
+- Asks to "build a pipeline dashboard" or "search Salesforce" for a topic
+- Wants to find all opportunities or activity around specific terms (e.g. "CrossX", "ECN")
+- Asks for a visual summary of Salesforce deals and call notes matching keywords
+
 ## Inputs (from `$ARGUMENTS`)
 
 Parse the following from the user's input:
-- **keywords** — one or more terms to search for (e.g. "CrossX, ECN, Crossover")
-- **timeframe** — number of days to look back (default: `365` if not specified)
+- **keywords** — one or more comma-separated terms (e.g. "CrossX, ECN, Crossover") — **required**, ask if missing
+- **timeframe** — days to look back (default: `365`)
+- **limit** — max records per query (default: `500`, max: `2000`)
 - **output filename** — default: `dashboard-YYYY-MM-DD.html` using today's date
 
-If keywords are missing, ask before proceeding. Timeframe and filename can always default.
+**Keyword sanitization:** Before inserting keywords into any SOQL query, escape single quotes by doubling them (`O'Brien` → `O''Brien`). Strip any characters that are not alphanumeric, spaces, hyphens, or underscores.
 
 ---
 
 ## Step 1 — Resolve Salesforce org
 
-Use `get_username` (defaultTargetOrg: true) from the `salesforce-dx` MCP to get the org username.
-Directory: use the current working directory.
+Use `mcp__salesforce-dx__get_username` (defaultTargetOrg: true) to get the org username. Use the current working directory.
 
-Store as `SF_USER` for all subsequent queries.
+Store as `SF_USER`.
 
 ---
 
 ## Step 2 — Get instance URL
 
-Run this shell command to get the Lightning base URL:
 ```bash
-sf org display --target-org <SF_USER> --json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('result',{}).get('instanceUrl','https://bitgo.lightning.force.com'))"
+sf org display --target-org <SF_USER> --json 2>/dev/null | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+print(d.get('result', {}).get('instanceUrl', '').rstrip('/'))
+"
 ```
 
-Store as `SF_BASE` (e.g. `https://bitgo.lightning.force.com`).
+Store as `SF_BASE` (e.g. `https://myorg.lightning.force.com`). If empty, ask the user to run `sf config list` and confirm their default org.
 
 ---
 
 ## Step 3 — Query Opportunities
 
-Build a SOQL query filtering on `Name` only (Description is not filterable).
-Use `LAST_N_DAYS:<timeframe>` for the date filter on `CreatedDate`.
+Build SOQL with one `Name LIKE` clause per keyword joined by `OR`. Apply a `LIMIT` to prevent runaway results.
 
 ```sql
 SELECT Id, Name, StageName, Amount, CloseDate, Account.Name, Owner.Name, CreatedDate
 FROM Opportunity
 WHERE CreatedDate >= LAST_N_DAYS:<timeframe>
-AND (<Name LIKE clauses for each keyword, joined with OR>)
+AND (Name LIKE '%<kw1>%' OR Name LIKE '%<kw2>%' ...)
 ORDER BY CreatedDate DESC
+LIMIT <limit>
 ```
 
-Example LIKE clause for keywords ["CrossX", "ECN", "Crossover"]:
-```
-Name LIKE '%CrossX%' OR Name LIKE '%ECN%' OR Name LIKE '%Crossover%'
-```
+**If `totalSize` equals `limit`**, warn the user: _"Results were capped at `<limit>`. Consider narrowing your keywords or reducing the timeframe."_
 
-Run via `run_soql_query`. Collect all returned records.
+Collect all returned records as `OPP_RECORDS`.
 
 ---
 
-## Step 4 — Query Email / Activity Threads (Tasks)
+## Step 4 — Query Tasks (Email / Activity Threads)
 
-Build a SOQL query on `Subject` only (Description is not filterable on Task either).
+Filter on `Subject` only — `Description` is not filterable in SOQL.
 
 ```sql
 SELECT Id, Subject, Description, ActivityDate, Type, Status, Owner.Name, Account.Name
 FROM Task
 WHERE ActivityDate >= LAST_N_DAYS:<timeframe>
-AND (<Subject LIKE clauses for each keyword, joined with OR>)
+AND (Subject LIKE '%<kw1>%' OR Subject LIKE '%<kw2>%' ...)
 ORDER BY ActivityDate DESC
+LIMIT <limit>
 ```
 
-**Important:** Task results can be very large. If the result is saved to a file rather than returned inline, read it back using Python:
+**Large result handling:** If the result is written to a file (>25k tokens), parse it with Python:
 
 ```python
-import json
+import json, re
 with open('<result_file_path>') as f:
     data = json.load(f)
 text = data[0]['text']
-json_start = text.index('{')
-result = json.loads(text[json_start:])
+result = json.loads(text[text.index('{'):])
 records = result['records']
+total = result['totalSize']
 ```
 
-Then filter records where Subject (case-insensitive) contains any keyword:
-```python
-terms = [k.lower() for k in keywords]
-matches = [r for r in records if any(t in (r.get('Subject') or '').lower() for t in terms)]
-```
+If `total` equals `limit`, warn the user the same way as Step 3.
 
-Deduplicate email threads by normalizing subjects (strip "Re:", "RE:", "Fwd:", "FW:" prefixes) and grouping by (Account, normalized_subject). Keep the most recent record per group.
+**Post-processing:**
+1. Filter records where `Subject` (case-insensitive) contains any keyword
+2. Separate calls/meetings (Type in `['Call','Meeting','Demo','In Person Meeting']` or Subject not starting with `'Email:'`) from email threads
+3. Deduplicate email threads: normalize subjects by stripping `Re:`, `RE:`, `Fwd:`, `FW:` prefixes, group by `(Account.Name, normalized_subject[:60])`, keep the most recent per group
 
-Separate **calls/meetings** (Type in ['Call','Meeting','Demo','In Person Meeting'] or Subject not starting with 'Email:') from email threads. Present calls first.
+Collect as `TASK_RECORDS`.
 
 ---
 
 ## Step 5 — Pull Notes for Opportunities
 
-For each opportunity returned in Step 3, query related Tasks to get actual call/meeting notes.
+Query Tasks related to the found opportunities using `WhatId IN (...)`.
+
+**Batch in groups of 200** — Salesforce enforces a 200-item `IN` clause limit:
+
+```python
+opp_ids = [r['Id'] for r in OPP_RECORDS]
+batches = [opp_ids[i:i+200] for i in range(0, len(opp_ids), 200)]
+```
+
+For each batch, run:
 
 ```sql
 SELECT Id, Subject, Description, ActivityDate, Type, Owner.Name, WhatId
 FROM Task
-WHERE WhatId IN ('<opp_id_1>','<opp_id_2>',...)
+WHERE WhatId IN ('<id1>','<id2>',...)
 AND ActivityDate >= LAST_N_DAYS:<timeframe>
 AND Subject NOT LIKE 'Email: Sales Won%'
 AND Subject NOT LIKE 'Email: Case%'
+AND Subject NOT LIKE 'Email: Case Received%'
 ORDER BY WhatId, ActivityDate DESC
+LIMIT 500
 ```
 
-**Do not include** automated system emails (Subject LIKE 'Email: Sales Won%' or 'Email: Case Received%') — these contain no useful notes.
+Exclude automated system emails (`Subject LIKE 'Email: Sales Won%'` etc.) — they contain no useful notes.
 
-Group results by `WhatId` to build a notes map: `{ oppId: [ {date, type, owner, text}, ... ] }`.
+Merge all batch results. Group by `WhatId` to build: `notes_map = { oppId: [{date, type, owner, text}, ...] }`.
 
 ---
 
-## Step 6 — Determine keyword match per record
+## Step 6 — Tag keyword matches
 
-For each opportunity and activity, tag which keywords matched:
-- Check `Name` (opps) or `Subject` (tasks) case-insensitively against each keyword
-- Store as an array on the record: `kw: ["crossx", "ecn"]`
-- Use lowercase slugs for keyword keys; display names should match what the user entered
+For each opportunity and activity, record which keywords matched:
+
+```python
+def tag_keywords(text, keywords):
+    t = text.lower()
+    return [k for k in keywords if k.lower() in t]
+```
+
+- Opportunities: check `Name`
+- Tasks: check `Subject`
+
+Store as `kw` array on each record (lowercase slugs). Use the original user-provided keyword spelling for display.
 
 ---
 
 ## Step 7 — Generate the HTML dashboard
 
-Write a single self-contained HTML file to `salesforce-dashboard/<output_filename>` (or the current directory if not in salesforce-dashboard).
+Write a single self-contained HTML file. All filtering and sorting must be client-side JavaScript — no server required.
 
-The dashboard must include:
+Embed all data as JavaScript constants at the top of the `<script>` block:
 
-### Summary stat cards (top)
-- Total Opportunities matched
-- Closed Won count
-- In Progress count (non-closed stages)
-- Closed Lost count
-- Email/Activity thread count
+```js
+const SF_BASE = "<SF_BASE>";
+const KEYWORDS = ["CrossX", "ECN", ...];   // original casing
+const OPPS = [ /* opportunity objects */ ];
+const EMAILS = [ /* deduplicated task objects */ ];
+```
 
-### Filter controls
-- **Keyword chips** — one per keyword, all active by default; clicking toggles that keyword on/off
-- **Search box** — filters account name + opportunity/subject text live
-- **Owner dropdown** — populated from unique owners in the data
-- **Stage dropdown** — Opportunities tab only
+### Required UI elements
 
-### Two tabs
-1. **Opportunities** — columns: Date, Account, Opportunity Name, Stage (color-coded badge), Owner, Keywords, Notes, SF Link
-2. **Email Activity** — columns: Date, Owner, Account, Subject, Keywords
+**Stat cards (top row)**
+- Total Opportunities | Closed Won | In Progress | Closed Lost | Activity Threads
+- All update dynamically when filters change
 
-### Notes column behavior
-- If no notes: show `—`
-- If notes exist: show a 1-line preview of the first note + a "View note / View N notes" button
-- Button opens a modal showing each note in a separate block with: activity type, date, owner, full text (pre-wrap)
-- Modal closes on × button, backdrop click, or Escape key
+**Filter bar**
+- Keyword chips — one per keyword, all active by default; click to toggle
+- Free-text search — filters account + name/subject live
+- Owner dropdown — populated from unique owners in the data
+- Stage dropdown — Opportunities tab only; hide for Activity tab
 
-### SF Link column
-- Each opportunity row gets an "↗ Open" link to `<SF_BASE>/<oppId>` opening in a new tab
+**Two tabs**
+1. **Opportunities** — Date · Account · Opportunity Name · Stage (badge) · Owner · Keywords · Notes · SF Link
+2. **Email Activity** — Date · Owner · Account · Subject · Keywords
 
-### All filtering/sorting is client-side JavaScript — no server required.
+All columns sortable by clicking the header.
 
-### Color scheme for stages
-- Closed Won: green
-- Closed Lost: red
-- KYC / Legal Review: purple
-- Negotiation: blue
-- Discovery: gray
-- Scoping: amber
+**Notes column**
+- No notes → `—`
+- Has notes → 1-line truncated preview + "View note" / "View N notes" button
+- Button opens a modal with each note in its own block (activity type · date · owner · full text pre-wrapped)
+- Modal dismisses on ×, backdrop click, or Escape key
 
-### Color scheme for keyword tags
-- Assign a distinct color per keyword (cycle through: purple, blue, green, amber, pink, teal)
+**SF Link column**
+- `<a href="<SF_BASE>/<oppId>" target="_blank">↗ Open</a>`
+
+**Stage badge colors**
+- Closed Won → green · Closed Lost → red · KYC/Legal → purple
+- Negotiation → blue · Discovery → gray · Scoping → amber
+
+**Keyword tag colors** — cycle through: purple, blue, green, amber, pink, teal (one color per keyword, consistent throughout)
 
 ---
 
-## Step 8 — Open the file
+## Step 8 — Open and report
 
 ```bash
 open <output_path>
 ```
 
-Then report to the user:
-- How many opportunities were found
-- How many activity threads were found
-- The output file path
-- Any keywords that returned 0 matches
+Report to the user:
+- Opportunities found (and if capped)
+- Activity threads found (and if capped)
+- Output file path
+- Any keywords with 0 matches — suggest checking spelling or broadening timeframe
 
 ---
 
 ## Known Salesforce Constraints
 
-| Object | Filterable text fields | Not filterable |
-|--------|----------------------|----------------|
-| Opportunity | Name, StageName | Description, NextStep |
-| Task | Subject, Type, Status | Description, Comments |
+| Object | Filterable fields | Not filterable |
+|--------|------------------|----------------|
+| Opportunity | Name, StageName, CloseDate, CreatedDate | Description, NextStep |
+| Task | Subject, Type, Status, ActivityDate | Description, Comments |
 
-Because Description is not filterable, the dashboard will only surface records where keywords appear in **Name** (Opportunities) or **Subject** (Tasks). Notes content is fetched separately via WhatId lookup and displayed in the Notes column — it is not used for filtering.
+Because `Description` is not filterable, matches are based on `Name`/`Subject` only. Notes are fetched separately via `WhatId` lookup and shown in the Notes column.
 
-## Error handling
+---
 
-- If a query returns 0 results for all keywords, tell the user and suggest checking the keyword spelling or widening the timeframe.
-- If the Task result is saved to a file (>25k tokens), always use Python to parse it — never try to read it directly.
-- If `sf org display` fails, ask the user to confirm their default org with `sf config list`.
+## Error Handling
+
+| Condition | Action |
+|-----------|--------|
+| No keywords provided | Ask before proceeding |
+| Keyword contains `'` | Escape as `''` in SOQL |
+| 0 results for all keywords | Report to user; suggest alternate spellings or wider timeframe |
+| Results hit `LIMIT` cap | Warn user; suggest narrowing keywords or reducing timeframe |
+| Task result > 25k tokens (saved to file) | Parse with Python — never read directly |
+| `WhatId IN` batch > 200 IDs | Split into batches of 200 and merge results |
+| `sf org display` fails | Ask user to run `sf config list` and confirm default org |
+| Salesforce MCP not connected | Tell user to add the Salesforce MCP in Claude Code settings |
