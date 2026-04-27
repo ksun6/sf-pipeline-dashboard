@@ -179,7 +179,47 @@ Store as `kw` array on each record (lowercase slugs). Use the original user-prov
 
 ---
 
-## Step 7 — Generate the HTML dashboard
+## Step 7 — Generate narrative summary
+
+Before writing HTML, synthesize a qualitative narrative from the call and meeting notes. This is the most valuable part of the dashboard — focus on what was actually said in calls, not just counts.
+
+**Source material (in priority order):**
+1. Call/meeting `Description` fields from `TASK_RECORDS` where Type is Call, Meeting, Demo, or In Person Meeting
+2. Notes from `notes_map` linked to matched opportunities
+3. Email subject lines (for signal, not body — email bodies are often noise)
+
+**For each keyword, write a short paragraph covering:**
+- What accounts/prospects are asking about or interested in
+- Recurring themes, use cases, or pain points mentioned in call notes
+- Deal signals: urgency, competitive mentions, blockers, next steps
+- Any patterns across multiple accounts (e.g. "several Asian banks asking about X")
+- Gaps: keywords with no call activity worth flagging
+
+**Format the narrative as a Python string** assigned to `NARRATIVE_HTML`, using simple HTML:
+```python
+NARRATIVE_HTML = """
+<div class="narrative-kw">
+  <h4>Keyword: Binance</h4>
+  <p>3 call reports mention Binance in notes. Pyypl (Mar 26) and MBank KG (Mar 25) both referenced Binance as a
+  current exchange integration they want to replicate via BitGo. Swim Group (Mar 8) mentioned Binance OTC desk
+  as a competitor for their block trading flow...</p>
+</div>
+<div class="narrative-kw">
+  <h4>Keyword: OKX</h4>
+  <p>...</p>
+</div>
+"""
+```
+
+**Rules:**
+- Draw only from actual note text — do not speculate or generalize beyond what the notes say
+- If a keyword has no call notes, say so explicitly ("No call reports with OKX mentions in this period")
+- Keep each keyword section to 3–6 sentences
+- Omit support/ticket emails — focus on sales calls and meetings
+
+---
+
+## Step 8 — Generate the HTML dashboard
 
 Write the output file to `<CWD>/<output_filename>` — always use the current working directory regardless of which folder the skill was invoked from.
 
@@ -196,7 +236,18 @@ const EMAILS = [ /* deduplicated task objects */ ];
 
 ### Required UI elements
 
-**Stat cards (top row)**
+**Narrative panel (below stat cards, above filters)**
+- Render `NARRATIVE_HTML` in a styled card with a subtle left border accent
+- Heading: "Summary & Themes" with the timeframe noted
+- One `<div class="narrative-kw">` per keyword, each with a bold keyword heading and paragraph text
+- Static — does not update with filters
+
+**Dynamic insights row (below narrative)**
+- Top 5 accounts by total activity (bar, client-side JS)
+- Activity by month — simple bar sparkline using inline SVG or CSS bars, computed from ActivityDate
+- Both update when keyword chips are toggled
+
+**Stat cards**
 - Total Opportunities | Closed Won | In Progress | Closed Lost | Activity Threads
 - All update dynamically when filters change
 
@@ -229,7 +280,7 @@ All columns sortable by clicking the header.
 
 ---
 
-## Step 8 — Open and report
+## Step 9 — Open and report
 
 ```bash
 open <output_path>
