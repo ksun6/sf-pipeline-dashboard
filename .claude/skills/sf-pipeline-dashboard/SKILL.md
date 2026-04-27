@@ -26,7 +26,7 @@ Parse the following from the user's input:
 - **keywords** — one or more comma-separated terms (e.g. "CrossX, ECN, Crossover") — **required**, ask if missing
 - **timeframe** — days to look back (default: `365`)
 - **limit** — max records per query (default: `500`, max: `2000`)
-- **output filename** — default: `dashboard-YYYY-MM-DD.html` using today's date
+- **output filename** — default: `dashboard-<keywords>-YYYY-MM-DD.html` where `<keywords>` is the keywords joined by `-` and lowercased (e.g. `dashboard-crossx-ecn-crossover-2026-04-27.html`). Strip spaces and special characters from keyword slugs.
 
 **Keyword sanitization:** Before inserting keywords into any SOQL query, escape single quotes by doubling them (`O'Brien` → `O''Brien`). Strip any characters that are not alphanumeric, spaces, hyphens, or underscores.
 
