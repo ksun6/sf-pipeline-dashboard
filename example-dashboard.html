@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CrossX / ECN Pipeline Dashboard</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --surface: #ffffff;
+    --border: #e2e6ea;
+    --text: #1a2333;
+    --text-secondary: #5a6a7e;
+    --accent: #0047cc;
+    --accent-light: #e8efff;
+
+    --tag-crossover: #7c3aed; --tag-crossover-bg: #f3eeff;
+    --tag-crossx: #0284c7;    --tag-crossx-bg: #e0f2fe;
+    --tag-ecn: #059669;       --tag-ecn-bg: #d1fae5;
+    --tag-credit: #d97706;    --tag-credit-bg: #fef3c7;
+
+    --stage-won: #059669;      --stage-won-bg: #d1fae5;
+    --stage-lost: #dc2626;     --stage-lost-bg: #fee2e2;
+    --stage-kyc: #7c3aed;      --stage-kyc-bg: #f3eeff;
+    --stage-negotiation: #0284c7; --stage-negotiation-bg: #e0f2fe;
+    --stage-discovery: #6b7280; --stage-discovery-bg: #f3f4f6;
+    --stage-scoping: #d97706;  --stage-scoping-bg: #fef3c7;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: var(--text);
+    color: #fff;
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  .header .meta { font-size: 12px; color: #94a3b8; }
+
+  /* ── Main ── */
+  .container { max-width: 1280px; margin: 0 auto; padding: 24px 32px; }
+
+  /* ── Stat cards ── */
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+  }
+  .stat-card .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); margin-bottom: 6px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1; }
+  .stat-card .sublabel { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+  .stat-card.accent { border-color: var(--accent); background: var(--accent-light); }
+  .stat-card.accent .value { color: var(--accent); }
+
+  /* ── Controls ── */
+  .controls {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+  .controls input[type="text"] {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    width: 220px;
+    outline: none;
+    color: var(--text);
+  }
+  .controls input[type="text"]:focus { border-color: var(--accent); }
+
+  select {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 13px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    outline: none;
+  }
+  select:focus { border-color: var(--accent); }
+
+  .filter-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+
+  .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1.5px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .chip.all        { border-color: var(--text-secondary); color: var(--text-secondary); }
+  .chip.crossover  { border-color: var(--tag-crossover); color: var(--tag-crossover); background: var(--tag-crossover-bg); }
+  .chip.crossx     { border-color: var(--tag-crossx);    color: var(--tag-crossx);    background: var(--tag-crossx-bg); }
+  .chip.ecn        { border-color: var(--tag-ecn);        color: var(--tag-ecn);        background: var(--tag-ecn-bg); }
+  .chip.active { opacity: 1; filter: brightness(0.9); box-shadow: 0 0 0 2px rgba(0,0,0,0.15); }
+  .chip:not(.active) { opacity: 0.55; }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 0; margin-bottom: 0; }
+  .tab {
+    padding: 10px 24px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-secondary);
+    border-radius: 8px 8px 0 0;
+    border-bottom: none;
+    transition: all 0.15s;
+    margin-right: 4px;
+  }
+  .tab.active {
+    background: var(--surface);
+    color: var(--accent);
+    border-color: var(--border);
+    border-bottom: 1px solid var(--surface);
+    margin-bottom: -1px;
+    z-index: 1;
+    position: relative;
+  }
+  .tab .count {
+    display: inline-block;
+    background: var(--accent-light);
+    color: var(--accent);
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 11px;
+    margin-left: 6px;
+  }
+  .tab:not(.active) .count { background: var(--border); color: var(--text-secondary); }
+
+  /* ── Table panel ── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0 8px 8px 8px;
+    overflow: hidden;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #f8f9fb; border-bottom: 1px solid var(--border); }
+  th {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+  }
+  th:hover { color: var(--accent); }
+  th .sort-arrow { margin-left: 4px; opacity: 0.4; }
+  th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
+
+  td { padding: 11px 16px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafbfc; }
+
+  .date-cell { color: var(--text-secondary); font-size: 13px; white-space: nowrap; }
+  .account-cell { font-weight: 600; font-size: 13px; }
+  .subject-cell { color: var(--text); font-size: 13px; max-width: 380px; }
+  .owner-cell { color: var(--text-secondary); font-size: 13px; white-space: nowrap; }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .badge.won         { background: var(--stage-won-bg);         color: var(--stage-won); }
+  .badge.lost        { background: var(--stage-lost-bg);        color: var(--stage-lost); }
+  .badge.kyc         { background: var(--stage-kyc-bg);         color: var(--stage-kyc); }
+  .badge.negotiation { background: var(--stage-negotiation-bg); color: var(--stage-negotiation); }
+  .badge.discovery   { background: var(--stage-discovery-bg);   color: var(--stage-discovery); }
+  .badge.scoping     { background: var(--stage-scoping-bg);     color: var(--stage-scoping); }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .tag.crossover { background: var(--tag-crossover-bg); color: var(--tag-crossover); }
+  .tag.crossx    { background: var(--tag-crossx-bg);    color: var(--tag-crossx); }
+  .tag.ecn       { background: var(--tag-ecn-bg);        color: var(--tag-ecn); }
+
+  /* ── Notes cell ── */
+  .notes-cell { max-width: 280px; }
+  .notes-preview {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 260px;
+  }
+  .notes-btn {
+    display: inline-block;
+    margin-top: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    background: var(--accent-light);
+    border: none;
+    border-radius: 4px;
+    padding: 2px 7px;
+  }
+  .notes-btn:hover { filter: brightness(0.93); }
+  .notes-empty { color: var(--border); font-size: 13px; }
+
+  /* ── SF Link ── */
+  .sf-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+    background: var(--accent-light);
+    border-radius: 5px;
+    padding: 4px 9px;
+    white-space: nowrap;
+  }
+  .sf-link:hover { filter: brightness(0.93); }
+
+  /* ── Modal ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 28px 32px;
+    max-width: 620px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    position: relative;
+  }
+  .modal-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .modal-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+  }
+  .modal-note-block {
+    border-left: 3px solid var(--border);
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    background: #fafbfc;
+    border-radius: 0 6px 6px 0;
+  }
+  .modal-note-block:last-child { margin-bottom: 0; }
+  .modal-note-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .modal-note-body {
+    font-size: 13px;
+    color: var(--text);
+    white-space: pre-wrap;
+    line-height: 1.55;
+  }
+  .modal-close {
+    position: absolute;
+    top: 16px;
+    right: 18px;
+    font-size: 20px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    background: none;
+    border: none;
+    line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+
+  /* ── Empty state ── */
+  .empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-secondary);
+  }
+  .empty .icon { font-size: 32px; margin-bottom: 12px; }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin-top: 24px;
+    padding-bottom: 24px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>CrossX / ECN Pipeline Dashboard</h1>
+    <div class="meta">Salesforce · Past 12 months · Keywords: Crossover, CrossX, ECN, Credit Intermediation</div>
+  </div>
+  <div class="meta">Last pulled: Apr 27, 2026</div>
+</div>
+
+<div class="container">
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card accent">
+      <div class="label">Total Opportunities</div>
+      <div class="value" id="stat-total-opps">19</div>
+      <div class="sublabel">matching keyword</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Closed Won</div>
+      <div class="value" id="stat-won" style="color: var(--stage-won)">14</div>
+      <div class="sublabel">opportunities</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">In Progress</div>
+      <div class="value" id="stat-open" style="color: var(--accent)">4</div>
+      <div class="sublabel">Discovery–Negotiation</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Closed Lost</div>
+      <div class="value" id="stat-lost" style="color: var(--stage-lost)">1</div>
+      <div class="sublabel">opportunities</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Email Threads</div>
+      <div class="value" id="stat-emails">32</div>
+      <div class="sublabel">unique conversations</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <span class="filter-label">Keyword</span>
+    <div class="filter-chips">
+      <span class="chip all active"    data-kw="all">All</span>
+      <span class="chip crossover active" data-kw="crossover">Crossover</span>
+      <span class="chip crossx active"   data-kw="crossx">CrossX</span>
+      <span class="chip ecn active"      data-kw="ecn">ECN</span>
+    </div>
+    <div style="flex:1"></div>
+    <input type="text" id="search" placeholder="Search account or subject…">
+    <select id="owner-filter">
+      <option value="">All owners</option>
+      <option>Brett Reeves</option>
+      <option>Jamie McGowan</option>
+      <option>Chen Fang</option>
+      <option>Jack Lee</option>
+      <option>Tiffany Wee</option>
+      <option>Abel Seow</option>
+      <option>Nick Coombs</option>
+      <option>Steve Scott</option>
+      <option>Albin Wan</option>
+    </select>
+    <select id="stage-filter">
+      <option value="">All stages</option>
+      <option>Closed Won</option>
+      <option>Closed Lost</option>
+      <option>Negotiation</option>
+      <option>KYC / Legal Review</option>
+      <option>Discovery</option>
+      <option>Scoping</option>
+    </select>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" data-tab="opps">Opportunities <span class="count" id="tab-opps-count">19</span></div>
+    <div class="tab" data-tab="emails">Email Activity <span class="count" id="tab-emails-count">32</span></div>
+  </div>
+
+  <!-- Panel -->
+  <div class="panel">
+
+    <!-- Opportunities table -->
+    <div id="view-opps">
+      <table>
+        <thead>
+          <tr>
+            <th data-sort="date">Date <span class="sort-arrow sorted">↓</span></th>
+            <th data-sort="account">Account <span class="sort-arrow">↕</span></th>
+            <th data-sort="name">Opportunity <span class="sort-arrow">↕</span></th>
+            <th data-sort="stage">Stage <span class="sort-arrow">↕</span></th>
+            <th data-sort="owner">Owner <span class="sort-arrow">↕</span></th>
+            <th>Keywords</th>
+            <th>Notes</th>
+            <th>SF Link</th>
+          </tr>
+        </thead>
+        <tbody id="opps-tbody"></tbody>
+      </table>
+      <div class="empty" id="opps-empty" style="display:none">
+        <div class="icon">🔍</div>
+        No opportunities match your filters.
+      </div>
+    </div>
+
+    <!-- Emails table -->
+    <div id="view-emails" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th data-sort="date">Date <span class="sort-arrow sorted">↓</span></th>
+            <th data-sort="owner">Owner <span class="sort-arrow">↕</span></th>
+            <th data-sort="account">Account <span class="sort-arrow">↕</span></th>
+            <th data-sort="subject">Subject <span class="sort-arrow">↕</span></th>
+            <th>Keywords</th>
+          </tr>
+        </thead>
+        <tbody id="emails-tbody"></tbody>
+      </table>
+      <div class="empty" id="emails-empty" style="display:none">
+        <div class="icon">🔍</div>
+        No activities match your filters.
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer">Data pulled from Salesforce via MCP · <em>Credit Intermediation</em>: 0 matches found</div>
+</div>
+
+<!-- Notes modal -->
+<div class="modal-overlay" id="notes-modal">
+  <div class="modal">
+    <button class="modal-close" id="modal-close">×</button>
+    <div class="modal-title" id="modal-title"></div>
+    <div class="modal-meta" id="modal-meta"></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ── Data ────────────────────────────────────────────────────────────────────
+const SF_BASE = "https://bitgo.lightning.force.com/";
+
+const OPPS = [
+  { date:"2026-04-27", account:"Tradeweb",                    name:"Tradeweb - Crossover Markets Referral Agreement",       stage:"Discovery",          owner:"Brett Kelly",    kw:["crossover"], sfId:"006Ro00000d3B27IAE", notes:null },
+  { date:"2026-04-27", account:"TPICAP Asia",                 name:"TRICAP Asia - ECN",                                     stage:"Discovery",          owner:"Tiffany Wee",    kw:["ecn"],        sfId:"006Ro00000d1Ai2IAE", notes:null },
+  { date:"2026-02-02", account:"Gravity Team LTD HK",         name:"Gravity Team LTD HK - Crossover",                       stage:"Negotiation",         owner:"Jamie McGowan",  kw:["crossover"], sfId:"006Ro00000Y99uvIAB", notes:null },
+  { date:"2026-01-20", account:"STS Digital",                 name:"STS Digital Ltd. - CrossOver Markets",                  stage:"KYC / Legal Review",  owner:"Jack Lee",       kw:["crossover"], sfId:"006Ro00000XOZeLIAX", notes:null },
+  { date:"2026-01-12", account:"White Truffle Fund, Ltd (HK)","name":"White Truffle - Crossover Mkts agreement",            stage:"Closed Won",          owner:"Jamie McGowan",  kw:["crossover"], sfId:"006Jw00000nSBu5IAG", notes:null },
+  { date:"2025-12-28", account:"White Truffle Fund, Ltd (HK)","name":"White Truffle Fund - CrossX",                        stage:"Closed Won",          owner:"Jamie McGowan",  kw:["crossx"],    sfId:"006Jw00000mkis2IAA", notes:null },
+  { date:"2025-12-19", account:"Flow Traders B.V. (HK)",      name:"FlowTraders - Crossover flow",                          stage:"Closed Won",          owner:"Nick Coombs",    kw:["crossover"], sfId:"006Jw00000mPpuxIAC", notes:null },
+  { date:"2025-12-10", account:"Gravity Trade Partners SA HK","name":"Gravity Trade Partners SA HK - Crossover",            stage:"Closed Won",          owner:"Jamie McGowan",  kw:["crossover"], sfId:"006Jw00000lsYZcIAM", notes:null },
+  { date:"2025-11-21", account:"ForthTech",                   name:"ForthTech - DMA + OES + Staking + ECN CrossX",          stage:"Scoping",             owner:"Tiffany Wee",    kw:["ecn","crossx"], sfId:"006Jw00000kqcDCIAY", notes:[
+    { date:"2026-02-25", type:"Call", owner:"Tiffany Wee",    text:"Angles: CrossX, Staking, BitGo OES, referral clients for custody, future Prime brokerage (DMA).\n\nPortfolio $300M, turns over ~20% every 10 days. Both taker and maker.\n\nUses clearloop, needs BitGo OES. Trading on Binance, Bitget, Gate, Kraken, Coinbase, KuCoin, Hyperliquid. Happy with OES exchange options for now — interested in Crossover Markets ECN post BitGo OES integration.\n\nStrategies: cross-exchange funding fee arb, algo taker/maker.\n\n2 arms: prop + client-facing (SMA).\n\nNeeds custodian for prop fund; will refer SMA clients who request custody.\nUses Copper for clearloop only — 4–5% annualized yield on USDC covers cost.\n\nNot yet ready for ECN: running new MM strategy analysing orderbook microstructure — not full HFT yet." },
+    { date:"2026-02-10", type:"Meeting", owner:"Monika Ohashi", text:"Uses LTP Prime (can't access Coinbase directly due to country nexus). Portfolio $300M, ~20% volume turnover every 10 days. Uses clearloop, needs BitGo OES. Trading on Binance, Bitget, Gate, Kraken, Coinbase, KuCoin, Hyperliquid. Interested in Crossover Markets ECN." },
+    { date:"2025-11-04", type:"Call", owner:"Monika Ohashi",  text:"Crypto fund manager running arbitrage strategies. Currently using Copper for custody and OES. Copper charges ~1% total but offers 1.5% deposit interest on USDC.\n\nPain point: all sub-accounts must have positive balance before transferring funds between exchanges.\n\nWould like to proceed with end clients assigning OES account control to ForthTech via LPOA; will run strategies via API." },
+  ]},
+  { date:"2025-10-29", account:"FXCH Ltd (HK)",               name:"FXCH - CrossX",                                         stage:"Closed Won",          owner:"Chen Fang",      kw:["crossx"],    sfId:"006Jw00000jIb5dIAC", notes:null },
+  { date:"2025-10-26", account:"BitGo Prime (HK)",            name:"BitGo Prime (Client of HK for CrossX)",                 stage:"Closed Won",          owner:"Brett Reeves",   kw:["crossx"],    sfId:"006Jw00000j4KXhIAM", notes:null },
+  { date:"2025-10-03", account:"WX Capital Pte Ltd (HK OTC)", name:"WX Capital - Crossover",                                stage:"Closed Won",          owner:"Brett Reeves",   kw:["crossover"], sfId:"006Jw00000hk80EIAQ", notes:null },
+  { date:"2025-09-04", account:"Red Oak Cayman LLC (HK)",     name:"Red Oak Cayman LLC / Caladan - CrossX",                 stage:"Closed Won",          owner:"Chen Fang",      kw:["crossx"],    sfId:"006Jw00000gHHnRIAW", notes:[
+    { date:"2025-10-22", type:"In Person Meeting", owner:"Brett Reeves", text:"Briefly met with Kisu at his own event — he was very busy. Following up on CrossX flow post Token." },
+  ]},
+  { date:"2025-08-27", account:"Auros Tech Limited (HK)",     name:"Auros Tech Limited (HK) - Crossover Markets",           stage:"Closed Lost",         owner:"Jack Lee",       kw:["crossover"], sfId:"006Jw00000fs1Z5IAI", notes:null },
+  { date:"2025-08-14", account:"GSR Markets Limited (HK)",    name:"GSR Markets Ltd - CrossX",                              stage:"Closed Won",          owner:"Brett Reeves",   kw:["crossx"],    sfId:"006Jw00000fEdLIIA0", notes:null },
+  { date:"2025-08-14", account:"Keyrock CH GmbH (HK)",        name:"Keyrock CH - CrossX",                                   stage:"Closed Won",          owner:"Brett Reeves",   kw:["crossx"],    sfId:"006Jw00000fEiRNIA0", notes:null },
+  { date:"2025-08-07", account:"ALPHA NODE SP. Z O.O.",       name:"One ALpha - HK trade and CrossX",                       stage:"Closed Won",          owner:"Chen Fang",      kw:["crossx"],    sfId:"006Jw00000euPJIIA2", notes:null },
+  { date:"2025-06-24", account:"Crossx Technologies Limited", name:"Crossover Markets HK",                                  stage:"Closed Won",          owner:"Chen Fang",      kw:["crossover","crossx"], sfId:"006Jw00000clxLQIAY", notes:null },
+  { date:"2025-05-23", account:"WX Capital Pte Ltd",          name:"WX Capital Pte Ltd - QC + HW (Crossover)",              stage:"Closed Won",          owner:"Albin Wan",      kw:["crossover"], sfId:"006Jw00000bF6vqIAC", notes:null },
+];
+
+const EMAILS = [
+  { date:"2026-04-22", owner:"Abel Seow",     account:"Think Capital Limited",            subject:"Think Markets - CROSSx / BitGo",                              kw:["crossx"] },
+  { date:"2026-04-20", owner:"Jamie McGowan", account:"Gravity Team LTD",                 subject:"Gravity Trade Partners SA <> BitGo (Crossover Integration)",   kw:["crossover"] },
+  { date:"2026-04-20", owner:"Jack Lee",      account:"c2 Capital Markets",               subject:"C2 Capital Management, LLC / BitGo - Crossover Intro",         kw:["crossover"] },
+  { date:"2026-04-01", owner:"Jamie McGowan", account:"Keyrock SA",                       subject:"Keyrock | BitGo | Crossover",                                  kw:["crossover"] },
+  { date:"2026-03-24", owner:"Steve Scott",   account:"Crossover Markets - Global",       subject:"Crossover <> BitGo (networking area)",                         kw:["crossover"] },
+  { date:"2026-03-10", owner:"Brett Reeves",  account:"Crossover Markets - Global",       subject:"Crossover - BitGo Singapore agreement",                        kw:["crossover"] },
+  { date:"2026-03-09", owner:"Abel Seow",     account:"—",                                subject:"Crossover Markets - 26 Degrees/BitGo Introduction",            kw:["crossover"] },
+  { date:"2026-02-26", owner:"Brett Reeves",  account:"Crossover Markets - Global",       subject:"BitGo Prime (US) Audit Confirmation Request - CrossX Tech",    kw:["crossx"] },
+  { date:"2026-02-22", owner:"Brett Reeves",  account:"Crossover Markets - Global",       subject:"Crossover Markets - 26 Degrees/BitGo Introduction",            kw:["crossover"] },
+  { date:"2026-02-18", owner:"Brett Reeves",  account:"Crossover Markets - Global",       subject:"Bitcoin Suisse / CROSSx",                                      kw:["crossx"] },
+  { date:"2026-02-08", owner:"Brett Reeves",  account:"Flow Traders Investments Limited", subject:"FTBV - BitGo/Crossover",                                       kw:["crossover"] },
+  { date:"2026-02-06", owner:"Brett Reeves",  account:"Think Capital Limited",            subject:"Think Markets - CROSSx / BitGo",                               kw:["crossx"] },
+  { date:"2026-02-04", owner:"Brett Reeves",  account:"Tradeweb",                         subject:"TradeWeb - BitGo (Crossover Mkts)",                            kw:["crossover"] },
+  { date:"2026-02-04", owner:"Brett Reeves",  account:"—",                                subject:"BitGo x Crossover - Alberblanc",                               kw:["crossover"] },
+  { date:"2026-01-23", owner:"Brett Reeves",  account:"Crossover Markets - Global",       subject:"WL Doc - Crossover Markets",                                   kw:["crossover"] },
+  { date:"2026-01-10", owner:"Brett Reeves",  account:"—",                                subject:"Crossover Markets - Toss Securities/BitGo Introduction",       kw:["crossover"] },
+  { date:"2025-12-18", owner:"Brett Reeves",  account:"Flow Traders Investments Limited", subject:"FTBV - BitGo/Crossover",                                       kw:["crossover"] },
+  { date:"2025-12-04", owner:"Brett Reeves",  account:"Flow Traders Investments Limited", subject:"Flowtraders X CrossX",                                         kw:["crossx"] },
+  { date:"2025-12-02", owner:"Brett Reeves",  account:"Flow Traders Investments Limited", subject:"Flowtraders credit review for risk limits on CrossX",           kw:["crossx"] },
+  { date:"2025-11-27", owner:"Brett Reeves",  account:"—",                                subject:"Galaxy - BitGo - Off exchange and Crossover",                  kw:["crossover"] },
+  { date:"2025-11-21", owner:"Brett Reeves",  account:"—",                                subject:"BitGo x Crossover - Alberblanc",                               kw:["crossover"] },
+  { date:"2025-11-06", owner:"Brett Reeves",  account:"—",                                subject:"Orcabay / BitGo - Crossover Intro",                            kw:["crossover"] },
+  { date:"2025-08-04", owner:"Automated",     account:"GSR Markets Limited",              subject:"BitGo Intermediation agreement for Crossover Mkts",             kw:["crossover"] },
+  { date:"2025-07-11", owner:"Brett Reeves",  account:"—",                                subject:"Jump x BitGo x Crossover Mkts",                                kw:["crossover"] },
+  { date:"2025-07-10", owner:"Steve Scott",   account:"Crossover Markets - Global",       subject:"Crossover & Galaxy via BitGo",                                 kw:["crossover"] },
+  { date:"2025-07-09", owner:"Brett Reeves",  account:"—",                                subject:"BitGo Intermediation agreement for Crossover Mkts",             kw:["crossover"] },
+  { date:"2025-07-03", owner:"Brett Reeves",  account:"GSR Markets Limited",              subject:"GSR - BitGo/CrossX",                                           kw:["crossx"] },
+  { date:"2025-06-27", owner:"Brett Reeves",  account:"GSR Markets Limited",              subject:"GSR - BitGo - Crossover",                                      kw:["crossover"] },
+  { date:"2025-06-13", owner:"Brett Reeves",  account:"Caladan",                          subject:"CROSSx Introduction: Caladan & BitGo",                         kw:["crossx"] },
+  { date:"2025-06-04", owner:"Automated",     account:"FalconX Limited (HK)",             subject:"CrossX - FalconX",                                             kw:["crossx"] },
+  { date:"2025-05-23", owner:"Brett Reeves",  account:"—",                                subject:"Call with Brett/ECNs/Prime Brokerage",                         kw:["ecn"] },
+  { date:"2025-05-07", owner:"Automated",     account:"Flow Traders Investments Limited", subject:"Crossover / BitGo / Flow Traders",                             kw:["crossover"] },
+];
+
+// ── State ──────────────────────────────────────────────────────────────────
+let activeTab    = "opps";
+let activeKws    = new Set(["crossover","crossx","ecn"]);
+let searchText   = "";
+let ownerFilter  = "";
+let stageFilter  = "";
+let oppsSortCol  = "date";
+let oppsSortAsc  = false;
+let emailsSortCol = "date";
+let emailsSortAsc = false;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function stageBadgeClass(stage) {
+  if (!stage) return "discovery";
+  const s = stage.toLowerCase();
+  if (s.includes("won"))        return "won";
+  if (s.includes("lost"))       return "lost";
+  if (s.includes("kyc") || s.includes("legal")) return "kyc";
+  if (s.includes("negotiation")) return "negotiation";
+  if (s.includes("scoping"))    return "scoping";
+  return "discovery";
+}
+
+function renderTags(kws) {
+  return kws.map(k => `<span class="tag ${k}">${k === "crossover" ? "Crossover" : k === "crossx" ? "CrossX" : k === "ecn" ? "ECN" : k}</span>`).join("");
+}
+
+function matchesKwFilter(row) {
+  return row.kw.some(k => activeKws.has(k));
+}
+
+function matchesSearch(str) {
+  return str.toLowerCase().includes(searchText.toLowerCase());
+}
+
+function renderNotesCell(r) {
+  if (!r.notes || r.notes.length === 0) return '<span class="notes-empty">—</span>';
+  const first = r.notes[0];
+  const preview = first.text.replace(/\n/g, " ").slice(0, 90) + (first.text.length > 90 ? "…" : "");
+  const idx = OPPS.indexOf(r);
+  return `<div class="notes-preview">${escHtml(preview)}</div>
+          <button class="notes-btn" onclick="openModal(${idx})">View ${r.notes.length > 1 ? r.notes.length + " notes" : "note"}</button>`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function renderOpps() {
+  let rows = OPPS.filter(r => {
+    if (!matchesKwFilter(r)) return false;
+    if (searchText && !matchesSearch(r.account) && !matchesSearch(r.name)) return false;
+    if (ownerFilter && r.owner !== ownerFilter) return false;
+    if (stageFilter && r.stage !== stageFilter) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    let va = a[oppsSortCol] || "", vb = b[oppsSortCol] || "";
+    return oppsSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+
+  const tbody = document.getElementById("opps-tbody");
+  const empty = document.getElementById("opps-empty");
+
+  if (rows.length === 0) {
+    tbody.innerHTML = "";
+    empty.style.display = "block";
+  } else {
+    empty.style.display = "none";
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td class="date-cell">${r.date}</td>
+        <td class="account-cell">${r.account}</td>
+        <td class="subject-cell">${r.name}</td>
+        <td><span class="badge ${stageBadgeClass(r.stage)}">${r.stage}</span></td>
+        <td class="owner-cell">${r.owner}</td>
+        <td>${renderTags(r.kw)}</td>
+        <td class="notes-cell">${renderNotesCell(r)}</td>
+        <td><a class="sf-link" href="${SF_BASE}${r.sfId}" target="_blank" rel="noopener">↗ Open</a></td>
+      </tr>`).join("");
+  }
+
+  document.getElementById("tab-opps-count").textContent = rows.length;
+  updateStats(rows);
+}
+
+function renderEmails() {
+  let rows = EMAILS.filter(r => {
+    if (!matchesKwFilter(r)) return false;
+    if (searchText && !matchesSearch(r.account) && !matchesSearch(r.subject) && !matchesSearch(r.owner)) return false;
+    if (ownerFilter && r.owner !== ownerFilter) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    const col = emailsSortCol === "subject" ? "subject" : emailsSortCol === "owner" ? "owner" : emailsSortCol === "account" ? "account" : "date";
+    let va = a[col] || "", vb = b[col] || "";
+    return emailsSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+
+  const tbody = document.getElementById("emails-tbody");
+  const empty = document.getElementById("emails-empty");
+
+  if (rows.length === 0) {
+    tbody.innerHTML = "";
+    empty.style.display = "block";
+  } else {
+    empty.style.display = "none";
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td class="date-cell">${r.date}</td>
+        <td class="owner-cell">${r.owner}</td>
+        <td class="account-cell">${r.account === "—" ? '<span style="color:var(--text-secondary)">—</span>' : r.account}</td>
+        <td class="subject-cell">${r.subject}</td>
+        <td>${renderTags(r.kw)}</td>
+      </tr>`).join("");
+  }
+
+  document.getElementById("tab-emails-count").textContent = rows.length;
+  document.getElementById("stat-emails").textContent = rows.length;
+}
+
+function updateStats(filteredOpps) {
+  document.getElementById("stat-total-opps").textContent = filteredOpps.length;
+  document.getElementById("stat-won").textContent  = filteredOpps.filter(r => r.stage === "Closed Won").length;
+  document.getElementById("stat-lost").textContent = filteredOpps.filter(r => r.stage === "Closed Lost").length;
+  document.getElementById("stat-open").textContent = filteredOpps.filter(r => !["Closed Won","Closed Lost"].includes(r.stage)).length;
+}
+
+function render() {
+  renderOpps();
+  renderEmails();
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    activeTab = tab.dataset.tab;
+    document.getElementById("view-opps").style.display   = activeTab === "opps" ? "block" : "none";
+    document.getElementById("view-emails").style.display = activeTab === "emails" ? "block" : "none";
+    // Stage filter only relevant for opps
+    document.getElementById("stage-filter").style.display = activeTab === "opps" ? "inline-block" : "none";
+  });
+});
+
+// ── Keyword chips ──────────────────────────────────────────────────────────
+document.querySelectorAll(".chip[data-kw]").forEach(chip => {
+  chip.addEventListener("click", () => {
+    const kw = chip.dataset.kw;
+    const allChip = document.querySelector(".chip.all");
+
+    if (kw === "all") {
+      // Toggle all on/off
+      const allOn = activeKws.size === 3;
+      if (allOn) {
+        activeKws.clear();
+      } else {
+        activeKws = new Set(["crossover","crossx","ecn"]);
+      }
+    } else {
+      if (activeKws.has(kw)) {
+        activeKws.delete(kw);
+      } else {
+        activeKws.add(kw);
+      }
+    }
+
+    // Sync "all" chip state
+    const allOn = activeKws.size === 3;
+    allChip.classList.toggle("active", allOn);
+    document.querySelector(".chip.crossover").classList.toggle("active", activeKws.has("crossover"));
+    document.querySelector(".chip.crossx").classList.toggle("active", activeKws.has("crossx"));
+    document.querySelector(".chip.ecn").classList.toggle("active", activeKws.has("ecn"));
+
+    render();
+  });
+});
+
+// ── Search + Filters ───────────────────────────────────────────────────────
+document.getElementById("search").addEventListener("input", e => {
+  searchText = e.target.value;
+  render();
+});
+
+document.getElementById("owner-filter").addEventListener("change", e => {
+  ownerFilter = e.target.value;
+  render();
+});
+
+document.getElementById("stage-filter").addEventListener("change", e => {
+  stageFilter = e.target.value;
+  render();
+});
+
+// ── Sorting ────────────────────────────────────────────────────────────────
+document.querySelectorAll("#view-opps th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const col = th.dataset.sort;
+    if (oppsSortCol === col) { oppsSortAsc = !oppsSortAsc; }
+    else { oppsSortCol = col; oppsSortAsc = false; }
+
+    document.querySelectorAll("#view-opps th").forEach(t => {
+      t.classList.remove("sorted");
+      const arrow = t.querySelector(".sort-arrow");
+      if (arrow) arrow.textContent = "↕";
+    });
+    th.classList.add("sorted");
+    const arr = th.querySelector(".sort-arrow");
+    if (arr) arr.textContent = oppsSortAsc ? "↑" : "↓";
+    renderOpps();
+  });
+});
+
+document.querySelectorAll("#view-emails th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const col = th.dataset.sort;
+    if (emailsSortCol === col) { emailsSortAsc = !emailsSortAsc; }
+    else { emailsSortCol = col; emailsSortAsc = false; }
+
+    document.querySelectorAll("#view-emails th").forEach(t => {
+      t.classList.remove("sorted");
+      const arrow = t.querySelector(".sort-arrow");
+      if (arrow) arrow.textContent = "↕";
+    });
+    th.classList.add("sorted");
+    const arr = th.querySelector(".sort-arrow");
+    if (arr) arr.textContent = emailsSortAsc ? "↑" : "↓";
+    renderEmails();
+  });
+});
+
+// ── Modal ─────────────────────────────────────────────────────────────────
+function openModal(idx) {
+  const r = OPPS[idx];
+  document.getElementById("modal-title").textContent = r.name;
+  document.getElementById("modal-meta").textContent = `${r.account} · ${r.owner} · ${r.stage}`;
+  document.getElementById("modal-body").innerHTML = r.notes.map(n => `
+    <div class="modal-note-block">
+      <div class="modal-note-header">${escHtml(n.type)} · ${n.date} · ${escHtml(n.owner)}</div>
+      <div class="modal-note-body">${escHtml(n.text)}</div>
+    </div>`).join("");
+  document.getElementById("notes-modal").classList.add("open");
+}
+
+function closeModal() {
+  document.getElementById("notes-modal").classList.remove("open");
+}
+
+document.getElementById("modal-close").addEventListener("click", closeModal);
+document.getElementById("notes-modal").addEventListener("click", e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+// ── Init ───────────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
