@@ -34,7 +34,13 @@ Parse the following from the user's input:
 
 ## Step 1 — Resolve Salesforce org
 
-Use `mcp__salesforce-dx__get_username` (defaultTargetOrg: true) to get the org username. Use the current working directory.
+First, get the current working directory:
+```bash
+pwd
+```
+Store as `CWD`. Use this for all MCP `directory` parameters throughout the skill.
+
+Use `mcp__salesforce-dx__get_username` (defaultTargetOrg: true, directory: `CWD`) to get the org username.
 
 Store as `SF_USER`.
 
@@ -159,7 +165,9 @@ Store as `kw` array on each record (lowercase slugs). Use the original user-prov
 
 ## Step 7 — Generate the HTML dashboard
 
-Write a single self-contained HTML file. All filtering and sorting must be client-side JavaScript — no server required.
+Write the output file to `<CWD>/<output_filename>` — always use the current working directory regardless of which folder the skill was invoked from.
+
+The file is self-contained HTML. All filtering and sorting must be client-side JavaScript — no server required.
 
 Embed all data as JavaScript constants at the top of the `<script>` block:
 
