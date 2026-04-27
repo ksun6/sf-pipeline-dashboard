@@ -102,8 +102,10 @@ FROM Task
 WHERE ActivityDate >= LAST_N_DAYS:<timeframe>
 AND Type IN ('Call', 'Meeting', 'Demo', 'In Person Meeting')
 ORDER BY ActivityDate DESC
-LIMIT <limit>
+LIMIT 2000
 ```
+
+Note: Query B always uses `LIMIT 2000` (the Salesforce maximum) regardless of the user-specified `limit` parameter, to maximize call report coverage.
 
 **Large result handling:** If either result is written to a file (>25k tokens), parse it with Python:
 
